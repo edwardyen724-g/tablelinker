@@ -2,18 +2,16 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
 
 interface AuthedRequest extends NextApiRequest {
-  user?: any; // Define this according to your user payload schema from Supabase
+  user?: { email: string; id: string };
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
-const rateLimit = new Map<string, number>(); // Simple in-memory rate limiter
+const rateLimit = new Map<string, number>();
 
 export default async function login(req: AuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
   const { email, password } = req.body;
@@ -22,23 +20,22 @@ export default async function login(req: AuthedRequest, res: NextApiResponse) {
     return res.status(400).json({ message: 'Email and password are required' });
   }
 
-  const requestIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-  const currentCount = rateLimit.get(requestIp as string) || 0;
+  const userKey = `${email}-${req.ip}`;
+  const currentAttempts = rateLimit.get(userKey) || 0;
 
-  if (currentCount >= 5) {
-    return res.status(429).json({ message: 'Too many requests, please try again later.' });
+  if (currentAttempts >= 5) {
+    return res.status(429).json({ message: 'Too many login attempts. Please try again later.' });
   }
 
   try {
-    const { user, error } = await supabase.auth.signIn({ email, password });
+    const { user, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      rateLimit.set(requestIp as string, currentCount + 1);
-      return res.status(401).json({ message: error.message });
+      rateLimit.set(userKey, currentAttempts + 1);
+      return res.status(401).json({ message: err instanceof Error ? err.message : String(error) });
     }
 
-    rateLimit.delete(requestIp as string); // Reset rate limit on successful login
-
+    rateLimit.delete(userKey);
     return res.status(200).json({ user });
   } catch (err) {
     return res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
