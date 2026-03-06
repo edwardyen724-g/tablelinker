@@ -1,11 +1,15 @@
-import { Metadata } from 'next';
-import { Soban } from 'soban';
 import './globals.css';
 import { Inter } from 'next/font/google';
+import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
+import { AuthProvider } from '@/context/AuthContext';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+});
 
-export const metadata: Metadata = {
+export const metadata = {
   title: 'TableLinker',
   description: 'Simplify complex data relationships for database analysts with ease.',
 };
@@ -16,16 +20,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-gray-100`}>
-        <header className="py-4 px-6 bg-white shadow">
-          <h1 className="text-2xl font-bold">Effortlessly Manage Multi-Table Relationships with TableLinker</h1>
-          <p className="text-gray-600 mt-1">Simplify complex data relationships for database analysts with ease.</p>
-        </header>
-        <main className="container mx-auto p-6">{children}</main>
-        <footer className="py-4 px-6 bg-white shadow mt-6">
-          <p className="text-center text-gray-600">© {new Date().getFullYear()} TableLinker. All rights reserved.</p>
-        </footer>
+    <html lang="en" className={inter.variable}>
+      <body>
+        <AuthProvider>
+          <Header />
+          <main>{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );
