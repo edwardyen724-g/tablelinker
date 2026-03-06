@@ -32,7 +32,7 @@ export default async function login(req: AuthedRequest, res: NextApiResponse) {
 
     if (error) {
       rateLimit.set(userKey, currentAttempts + 1);
-      return res.status(401).json({ message: err instanceof Error ? err.message : String(error) });
+      return res.status(401).json({ message: error instanceof Error ? error.message : String(error) });
     }
 
     rateLimit.delete(userKey);
