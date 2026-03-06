@@ -1,64 +1,61 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import admin from 'firebase-admin';
-import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { admin } from 'lib/firebase-admin'; // Assuming you have a firebase-admin setup in lib/
+import { verify } from 'lib/auth'; // Assuming you have auth verification setup
+import { Relationship } from 'types/relationships'; // Define your Relationship type as needed
 
 interface AuthedRequest extends NextApiRequest {
-  user?: { uid: string };
+  user?: { id: string; email: string };
 }
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
-
-if (admin.apps.length === 0) {
-  initializeApp({
-    credential: cert(serviceAccount),
-  });
-}
-
-const db = getFirestore();
-
-const relationships: Map<string, number> = new Map();
-
-const rateLimit = (key: string) => {
-  const currentTime = Date.now();
-  const rateLimitWindow = 60000; // 1 minute
-  const requestCount = relationships.get(key) || 0;
-
-  if (requestCount >= 5) {
-    throw new Error('Rate limit exceeded. Please try again later.');
-  }
-
-  relationships.set(key, requestCount + 1);
-  setTimeout(() => {
-    relationships.set(key, requestCount);
-  }, rateLimitWindow);
-};
+const relationshipsMap = new Map<string, number>(); // Simple in-memory Map for rate limiting
 
 export default async function createRelationship(req: AuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  try {
-    rateLimit(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'anonymous');
+  const userId = await verify(req); // Assuming verify returns user ID
 
-    const { tableAId, tableBId, relationshipType } = req.body;
+  if (!userId) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const rateLimitKey = userId;
+  const currentCount = relationshipsMap.get(rateLimitKey) || 0;
+
+  if (currentCount >= 5) { // Limit to 5 requests per user
+    return res.status(429).json({ message: 'Too many requests, please try again later.' });
+  }
+
+  relationshipsMap.set(rateLimitKey, currentCount + 1);
+
+  try {
+    const { tableAId, tableBId, relationshipType }: Relationship = req.body;
 
     if (!tableAId || !tableBId || !relationshipType) {
-      return res.status(400).json({ message: 'Missing required fields' });
+      return res.status(400).json({ message: 'Missing required fields.' });
     }
 
-    const newRelationship = {
+    // Logic to create a relationship in your database
+    const relationshipRef = admin.firestore().collection('relationships').doc();
+    await relationshipRef.set({
+      userId,
       tableAId,
       tableBId,
       relationshipType,
-      createdAt: admin.firestore.Timestamp.now(),
-    };
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
-    await db.collection('relationships').add(newRelationship);
-
-    return res.status(201).json(newRelationship);
+    return res.status(201).json({ id: relationshipRef.id, message: 'Relationship created successfully.' });
   } catch (err) {
     return res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
+  } finally {
+    // Cleanup rate limit entry after a certain period if necessary, implement your logic
+    setTimeout(() => {
+      const updatedCount = relationshipsMap.get(rateLimitKey) || 0;
+      if (updatedCount > 0) {
+        relationshipsMap.set(rateLimitKey, updatedCount - 1);
+      }
+    }, 60000); // Resetting every minute
   }
 }
