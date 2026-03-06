@@ -7,12 +7,25 @@ interface AuthedRequest extends NextApiRequest {
   user?: { id: string; email: string };
 }
 
+const validateEmail = (email: string): boolean => {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+};
+
+const validatePassword = (password: string): boolean => {
+  return password.length >= 6; // Example: must be 6 characters or more
+};
+
 export default async function signup(req: AuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
   const { email, password } = req.body;
+
+  if (!validateEmail(email) || !validatePassword(password)) {
+    return res.status(400).json({ message: 'Invalid email or password' });
+  }
 
   try {
     const { user, error } = await supabase.auth.signUp({ email, password });
