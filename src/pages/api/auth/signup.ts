@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../../lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 interface AuthedRequest extends NextApiRequest {
   user?: { id: string; email: string };
