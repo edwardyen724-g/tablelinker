@@ -1,63 +1,61 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import admin from 'firebase-admin';
-import { getSession } from 'next-auth/react'; // Assuming you're using next-auth for authentication
-import { initializeApp, applicationDefault } from 'firebase-admin/app';
-import { Firestore } from 'firebase-admin/firestore';
+import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
+  initializeApp({
+    credential: cert(serviceAccount),
+  });
+}
+
+const db = getFirestore();
 
 interface AuthedRequest extends NextApiRequest {
   user?: { uid: string };
 }
 
-initializeApp({ credential: applicationDefault() });
-
-const db = new Firestore();
-
-const rateLimit = new Map<string, number>();
-
-const generateReport = async (userId: string) => {
-  // Your logic to generate report data goes here.
-  // This is a placeholder for actual report generation logic.
-  return {
-    success: true,
-    data: {
-      title: 'Sample Report',
-      content: `Report generated for user ${userId}`,
-    },
-  };
-};
+const reportsMap = new Map<string, number>();
 
 export default async function handler(req: AuthedRequest, res: NextApiResponse) {
-  const session = await getSession({ req });
+  // Rate limiting logic
+  const rateLimitKey = req.headers['x-api-key'] as string;
+  const currentCount = reportsMap.get(rateLimitKey) || 0;
 
-  if (!session || !session.user) {
-    return res.status(401).json({ message: 'Unauthorized' });
+  if (currentCount >= 5) {
+    return res.status(429).json({ message: 'Too many requests. Please try again later.' });
   }
 
-  const userId = session.user.uid;
+  reportsMap.set(rateLimitKey, currentCount + 1);
 
-  // Rate limiting implementation
-  const currentTime = Date.now();
-  const windowTime = 60000; // 1 minute
-  const requestLimit = 5;
+  if (req.method === 'POST') {
+    try {
+      const { reportId, filters } = req.body;
+      if (!reportId) {
+        return res.status(400).json({ message: 'Report ID is required.' });
+      }
 
-  if (rateLimit.has(userId)) {
-    const requestCount = rateLimit.get(userId)!;
-    if (requestCount >= requestLimit) {
-      return res.status(429).json({ message: 'Rate limit exceeded. Try again later.' });
+      // Fetch report data from Firestore
+      const reportRef = db.collection('reports').doc(reportId);
+      const reportDoc = await reportRef.get();
+
+      if (!reportDoc.exists) {
+        return res.status(404).json({ message: 'Report not found.' });
+      }
+
+      const reportData = reportDoc.data();
+      // Here we would add logic to process filters and generate report content
+     
+      // Respond with the generated report data
+      res.status(200).json({ reportId, reportData });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
     }
-    rateLimit.set(userId, requestCount + 1);
   } else {
-    rateLimit.set(userId, 1);
-    setTimeout(() => {
-      rateLimit.delete(userId);
-    }, windowTime);
-  }
-
-  try {
-    const report = await generateReport(userId);
-    return res.status(200).json(report);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
+    res.setHeader('Allow', ['POST']);
+    res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 }
