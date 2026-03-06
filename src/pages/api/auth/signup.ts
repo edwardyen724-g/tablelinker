@@ -18,7 +18,7 @@ export default async function signup(req: AuthedRequest, res: NextApiResponse) {
     const { user, error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
-      return res.status(400).json({ message: error.message });
+      return res.status(400).json({ message: error instanceof Error ? error.message : String(error) });
     }
 
     return res.status(201).json({ user: { id: user?.id, email: user?.email } });
